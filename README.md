@@ -8,7 +8,7 @@ Labs reports:
 * [Pintos Timer](reports/Report_1.pdf)
 * [Pintos Threads synch](reports/Report_2.pdf)
 * [Pintos Narrow Bridge](reports/Report_3.pdf)
-* [Pintos User Programms](reports/Report_4.pdf)
+* [Pintos User Programs](reports/Report_4.pdf)
 
 ## Important note!
 
