@@ -484,10 +484,16 @@ init_thread (struct thread *t, const char *name, int priority)
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
-
+  char *normal_name = (char *)name;
+  for(int i = 0; i < strlen(normal_name); i++) {
+    if(normal_name[i] == 0x20) {
+      normal_name[i] = '\0';
+      break;
+    }
+  }
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
-  strlcpy (t->name, name, sizeof t->name);
+  strlcpy (t->name, normal_name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->locks_count = 0;
