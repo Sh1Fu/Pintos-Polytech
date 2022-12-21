@@ -98,6 +98,7 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
+    int error_code;                     /* Thread error code */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
