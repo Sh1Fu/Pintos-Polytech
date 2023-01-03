@@ -20,10 +20,12 @@
 #include "lib/string.h"
 #include "threads/synch.h"
 
+static tid_t thread_find_tid;                      /* Thread's id of thread that we're looking for */
+static struct thread *found_thread_pointer = NULL; /* Pointer to thread with Id = thread_find_tid */
 static thread_func start_process NO_RETURN;
 static bool load(const char *cmdline, void (**eip)(void), void **esp);
-struct semaphore process_sema;
-
+static void find_tid(struct thread *t, void *aux UNUSED);
+int prev_status = -1;
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -32,7 +34,6 @@ tid_t process_execute(const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-  sema_init(&process_sema, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -40,10 +41,31 @@ tid_t process_execute(const char *file_name)
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
+  char *saveptr, *name;
+  name = strtok_r((char *)file_name, " ", &saveptr);
+
+  if (name == NULL)
+    return -1;
+
+  struct file *check_file = filesys_open(name);
+  if (check_file == NULL) {
+    return -1;
+  }
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
+  {
     palloc_free_page(fn_copy);
+  }
+  else
+  {
+    thread_find_tid = tid;
+    enum intr_level old_level = intr_disable();
+    thread_foreach(*find_tid, NULL);
+    intr_set_level(old_level);
+    list_push_front(&thread_current()->child_process_list, &found_thread_pointer->child_elem);
+  }
   return tid;
 }
 
@@ -66,8 +88,9 @@ start_process(void *file_name_)
   /* If load failed, quit. */
   palloc_free_page(file_name);
   if (!success)
+  {
     thread_exit();
-
+  }
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -90,10 +113,36 @@ start_process(void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(tid_t child_tid UNUSED)
+int process_wait(tid_t child_tid)
 {
-  sema_down(&process_sema);
-  return -1;
+  struct thread *child_thread = NULL; /* The child thread that we're waiting on to return. */
+  struct list_elem *temp;             /* list element to iterate the list of child threads. */
+
+  if (list_empty(&thread_current()->child_process_list))
+    return -1;
+
+  /* Look to see if the child thread in question is our child. */
+  for (temp = list_front(&thread_current()->child_process_list); temp != NULL; temp = temp->next)
+  {
+    struct thread *t = list_entry(temp, struct thread, child_elem);
+    if (t->tid == child_tid)
+    {
+      child_thread = t;
+      break;
+    }
+  }
+
+  /* If not our child, we musn't wait. */
+  if (child_thread == NULL)
+    return -1;
+  /* Remove the child from our lists of child threads, so that calling this
+     function for a second time does not require additional waiting. */
+  list_remove(&child_thread->child_elem);
+
+  /* Put the current thread to sleep by waiting on the child thread whose
+     PID was passed in. */
+  sema_down(&child_thread->parent_block);
+  return prev_status;
 }
 
 /* Free the current process's resources. */
@@ -101,10 +150,10 @@ void process_exit(void)
 {
   struct thread *cur = thread_current();
   uint32_t *pd;
-
+  prev_status = cur->status_code;
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  printf("%s: exit(%d)\n", cur->name, cur->error_code);
+  // printf("%s: exit(%d)\n", cur->name, cur->error_code);
   pd = cur->pagedir;
   if (pd != NULL)
   {
@@ -119,7 +168,6 @@ void process_exit(void)
     pagedir_activate(NULL);
     pagedir_destroy(pd);
   }
-  sema_up(&process_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -246,14 +294,7 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
 
   /* Read and verify executable header. */
   if (
-     file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr
-     || memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) 
-     || ehdr.e_type != 2 
-     || ehdr.e_machine != 3 
-     || ehdr.e_version != 1 
-     || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) 
-     || ehdr.e_phnum > 1024
-     )
+      file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr || memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 || ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024)
   {
     printf("load: %s: error loading executable\n", file_name);
     goto done;
@@ -506,4 +547,13 @@ install_page(void *upage, void *kpage, bool writable)
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
   return (pagedir_get_page(t->pagedir, upage) == NULL && pagedir_set_page(t->pagedir, upage, kpage, writable));
+}
+
+/* thread_foreach function which helps us to find thread by tid*/
+static void find_tid(struct thread *t, void *aux UNUSED)
+{
+  if (thread_find_tid == t->tid)
+  {
+    found_thread_pointer = t;
+  }
 }
