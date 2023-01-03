@@ -9,6 +9,7 @@ Labs reports:
 * [Pintos Threads synch](reports/Report_2.pdf)
 * [Pintos Narrow Bridge](reports/Report_3.pdf)
 * [Pintos User Programs](reports/Report_4.pdf)
+* [Pintos System Calls](reports/Report_5.pdf)
 
 ## Important note!
 
